@@ -52,12 +52,7 @@ class TeradataDialect(default.DefaultDialect):
     name = 'teradata'
     driver = 'teradata'
     default_paramstyle = 'qmark'
-    
-    #Connection pooling not supported by Linux ODBC driver
-    if osType=='Linux':
-        poolclass = pool.NullPool
-    else:
-        poolclass = pool.SingletonThreadPool
+    poolclass = pool.SingletonThreadPool
 
     statement_compiler = TeradataCompiler
     ddl_compiler = TeradataDDLCompiler
@@ -106,6 +101,22 @@ class TeradataDialect(default.DefaultDialect):
 
         """ Hook to the dbapi2.0 implementation's module"""
         from teradata import tdodbc
+
+        #Hack this class instantiates the ODBC connection object and manages its destruction
+        class OdbcConnectionMgr:
+            """Creates and mirrors ODBC Connection object."""
+            def __init__(self,*args,**kwargs):
+                self.c=tdodbc.OdbcConnection(*args,**kwargs)
+
+                for method_name in dir(self.c):
+                    if type(getattr(self.c, method_name)).__name__=='method' and method_name!='__del__':
+                        setattr(self, method_name, getattr(self.c, method_name))
+
+            def __del__(self):
+                self.c.close()
+        
+        tdodbc.connect = OdbcConnectionMgr
+
         return tdodbc
 
     def normalize_name(self, name, **kw):
